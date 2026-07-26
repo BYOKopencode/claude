@@ -1,0 +1,15 @@
+[
+  {
+    "name": "Alice",
+    "api_key": "sk-alice-CHANGE-ME",
+    "session_id": "sess_xxx",
+    "user_id": "user_xxx",
+    "user_email": "alice@example.com",
+    "instance_id": "ins_xxx",
+    "jwt": "eyJhbGci...",
+    "client_cookie": "eyJhbGci...",
+    "client_uat": "1234567890",
+    "cf_bm": "...",
+    "cfuvid": "..."
+  }
+]
