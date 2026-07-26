@@ -11,10 +11,19 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from config import settings, users
 from proxy import OmniRogueProxy
+from tool_compat import (
+    apply_tool_calls,
+    completion_to_chunks,
+    flatten_content,
+    render_messages,
+    tool_specs,
+)
+
+STREAM_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 try:
     from mcp.server import Server
@@ -90,47 +99,43 @@ async def openai_style_http_errors(request: Request, exc: StarletteHTTPException
 #  SCHEMAS
 # ═══════════════════════════════════════════════════════════════════════
 
-def _flatten_content(content: Any) -> str:
-    """Normalize OpenAI/Anthropic message content into a plain string.
-
-    Clients (IDE assistants, SDKs) may send `content` either as a string or as
-    a list of typed blocks like [{"type": "text", "text": "..."}, ...] when
-    attaching files or images. OmniRogue's upstream /api/llm/chat only accepts
-    a plain string, so collapse block arrays into newline-joined text and drop
-    non-text parts (e.g. image blocks) that the upstream cannot render.
-    """
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict):
-                text = block.get("text")
-                if isinstance(text, str):
-                    parts.append(text)
-        return "\n".join(p for p in parts if p)
-    # Numbers, booleans, or unexpected objects: coerce rather than 422.
-    return str(content)
-
-
 class ChatMessage(BaseModel):
-    role: str
-    # Accept both plain strings and block arrays; normalized via flatten_content().
-    content: Any = ""
+    """One OpenAI-style message.
 
-    def flatten_content(self) -> str:
-        return _flatten_content(self.content)
+    `content` accepts either a plain string or a block array (sent by clients
+    when attaching files). Tool fields are accepted so agent frameworks can
+    replay assistant tool calls and `role: "tool"` results.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    role: str = "user"
+    content: Any = ""
+    name: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    tool_calls: Optional[list[Dict[str, Any]]] = None
 
 
 class ChatCompletionRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     model: str = settings.default_model
     messages: list[ChatMessage]
     stream: bool = False
     stream_options: Optional[Dict[str, Any]] = None
+    # Tool calling. The upstream has no native support, so these are emulated
+    # via a JSON protocol injected as a system instruction (see tool_compat).
+    tools: Optional[list[Dict[str, Any]]] = None
+    tool_choice: Any = None
+    # Legacy OpenAI function-calling aliases.
+    functions: Optional[list[Dict[str, Any]]] = None
+    function_call: Any = None
+
+    def resolved_tools(self) -> list[Dict[str, Any]]:
+        return self.tools or self.functions or []
+
+    def resolved_tool_choice(self) -> Any:
+        return self.tool_choice if self.tool_choice is not None else self.function_call
 
 
 class CookieUpdateRequest(BaseModel):
@@ -154,9 +159,39 @@ class ConversationRequest(BaseModel):
 @app.post("/v1/chat/completions")
 def chat_completions(req: ChatCompletionRequest, proxy: OmniRogueProxy = Depends(require_user)):
     if not req.messages:
-        return JSONResponse({"error": "messages required"}, status_code=400)
-    messages = [{"role": message.role, "content": message.flatten_content()} for message in req.messages]
+        return JSONResponse({"error": {"message": "messages required", "type": "invalid_request_error"}}, status_code=400)
+
+    tool_choice = req.resolved_tool_choice()
+    specs = tool_specs(req.resolved_tools(), tool_choice)
+    messages = render_messages([m.model_dump() for m in req.messages], specs, tool_choice)
+    if not messages:
+        return JSONResponse({"error": {"message": "no usable message content", "type": "invalid_request_error"}}, status_code=400)
     include_usage = (req.stream_options or {}).get("include_usage", False)
+
+    if specs:
+        # Emulated tool calling: a tool call is only detectable once the whole
+        # reply is parsed, so always fetch non-streaming upstream, then replay
+        # as SSE chunks if the client asked to stream.
+        try:
+            completion = apply_tool_calls(
+                proxy.chat_sync(messages, req.model),
+                {spec["name"] for spec in specs},
+            )
+        except rq.exceptions.HTTPError as exc:
+            return JSONResponse(
+                {"error": {"message": str(exc), "type": "upstream_error", "detail": exc.response.text}},
+                status_code=exc.response.status_code,
+            )
+
+        if not req.stream:
+            return JSONResponse(completion)
+
+        def replay():
+            for chunk in completion_to_chunks(completion, include_usage=include_usage):
+                yield f"data: {json.dumps(chunk)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(replay(), media_type="text/event-stream", headers=STREAM_HEADERS)
 
     if req.stream:
         def generate():
@@ -285,7 +320,7 @@ if MCP_AVAILABLE:
                 mcp_messages = [
                     {
                         "role": message.get("role", "user"),
-                        "content": _flatten_content(message.get("content")),
+                        "content": flatten_content(message.get("content")),
                     }
                     for message in arguments.get("messages", [])
                     if isinstance(message, dict)
