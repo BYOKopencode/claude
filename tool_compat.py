@@ -471,7 +471,7 @@ This module deliberately imports nothing from FastAPI/pydantic so it stays
 unit-testable on its own.
 """
 from __future__ import annotations
-import json​
+import json
 import re
 import uuid
 from typing import Any
