@@ -1,18 +1,18 @@
 """OpenAI content-shape and tool-calling compatibility helpers.
-​
+
 The OmniRogue upstream (POST /api/llm/chat) accepts only a list of
 {role, content} messages where content is a plain string. It has no native
 function-calling support and no notion of a "tool" role.
-​
+
 These helpers translate in both directions so that standard OpenAI clients and
 agent frameworks (which send `tools`, `tool_choice`, assistant `tool_calls`, and
 `role: "tool"` results) work unchanged:
-​
+
   request  -> tool catalog is injected as a system instruction, and prior tool
               calls/results are rendered back into plain text turns
   response -> a JSON tool-call envelope emitted by the model is parsed into
               OpenAI `tool_calls` with finish_reason="tool_calls"
-​
+
 This module deliberately imports nothing from FastAPI/pydantic so it stays
 unit-testable on its own.
 """
@@ -22,18 +22,18 @@ import json
 import re
 import uuid
 from typing import Any
-​
+
 # Roles that carry tool results back to the model.
 TOOL_ROLES = {"tool", "function"}
-​
+
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
-​
-​
+
+
 # ── Content normalization ─────────────────────────────────────────────
-​
+
 def flatten_content(content: Any) -> str:
     """Normalize OpenAI/Anthropic message content into a plain string.
-​
+
     Clients may send `content` either as a string or as a list of typed blocks
     like [{"type": "text", "text": "..."}] when attaching files or images.
     Upstream requires a string, so block arrays are joined and non-text parts
@@ -55,13 +55,13 @@ def flatten_content(content: Any) -> str:
         return "\n".join(part for part in parts if part)
     # Numbers, booleans, or unexpected objects: coerce rather than reject.
     return str(content)
-​
-​
+
+
 # ── Request translation ───────────────────────────────────────────────
-​
+
 def tool_specs(tools: Any, tool_choice: Any = None) -> list[dict]:
     """Normalize an OpenAI `tools` (or legacy `functions`) payload.
-​
+
     Returns [] when tool calling is disabled or nothing usable was supplied,
     which callers use as the signal to take the plain chat path.
     """
@@ -84,8 +84,8 @@ def tool_specs(tools: Any, tool_choice: Any = None) -> list[dict]:
             }
         )
     return specs
-​
-​
+
+
 def forced_tool_name(tool_choice: Any) -> str | None:
     """Extract the tool name from tool_choice={"type":"function",...}, if any."""
     if isinstance(tool_choice, dict):
@@ -95,13 +95,13 @@ def forced_tool_name(tool_choice: Any) -> str | None:
         if isinstance(tool_choice.get("name"), str):
             return tool_choice["name"]
     return None
-​
-​
+
+
 def tool_system_prompt(specs: list[dict], tool_choice: Any = None) -> str:
     """Build the system instruction that teaches the JSON tool-call protocol."""
     catalog = json.dumps(specs, indent=2, ensure_ascii=False)
     forced = forced_tool_name(tool_choice)
-​
+
     lines = [
         "You can call tools. Only the tools listed below exist. The available tools, with "
         "JSON Schema for their arguments, are:",
@@ -135,8 +135,8 @@ def tool_system_prompt(specs: list[dict], tool_choice: Any = None) -> str:
     else:
         lines.append("- If no tool is needed, reply normally in plain text instead of JSON.")
     return "\n".join(lines)
-​
-​
+
+
 def _render_assistant_tool_calls(content: str, tool_calls: Any) -> str:
     """Re-render a prior assistant tool call as the JSON envelope it 'sent'."""
     rendered = []
@@ -160,24 +160,24 @@ def _render_assistant_tool_calls(content: str, tool_calls: Any) -> str:
         return content
     envelope = json.dumps({"tool_calls": rendered}, ensure_ascii=False)
     return f"{content}\n{envelope}".strip()
-​
-​
+
+
 def render_messages(raw_messages: list[dict], specs: list[dict], tool_choice: Any = None) -> list[dict]:
     """Convert OpenAI-style messages into upstream {role, content} messages.
-​
+
     - block-array content is flattened to text
     - assistant `tool_calls` become the JSON envelope the model is taught to emit
     - `role: "tool"` / `"function"` results become user turns the upstream accepts
     - when tools are active, a system instruction is prepended
     """
     rendered: list[dict] = []
-​
+
     for message in raw_messages:
         if not isinstance(message, dict):
             continue
         role = message.get("role") or "user"
         content = flatten_content(message.get("content"))
-​
+
         if role in TOOL_ROLES:
             name = message.get("name") or "tool"
             call_id = message.get("tool_call_id")
@@ -186,15 +186,15 @@ def render_messages(raw_messages: list[dict], specs: list[dict], tool_choice: An
                 header += f" (call {call_id})"
             rendered.append({"role": "user", "content": f"{header}:\n{content}"})
             continue
-​
+
         if role == "assistant" and message.get("tool_calls"):
             content = _render_assistant_tool_calls(content, message["tool_calls"])
-​
+
         if not content:
             # Upstream rejects empty content; drop the turn instead of erroring.
             continue
         rendered.append({"role": role, "content": content})
-​
+
     if specs:
         # The upstream is a website chat backend that does not reliably honor
         # system-role turns, so the protocol is prepended to the LAST user turn
@@ -209,12 +209,12 @@ def render_messages(raw_messages: list[dict], specs: list[dict], tool_choice: An
                 break
         else:
             rendered.append({"role": "user", "content": prompt})
-​
+
     return rendered
-​
-​
+
+
 # ── Response translation ──────────────────────────────────────────────
-​
+
 def _first_json_object(text: str) -> tuple[Any, str]:
     """Find the first balanced {...} in text. Returns (parsed, preceding_text)."""
     start = text.find("{")
@@ -245,17 +245,17 @@ def _first_json_object(text: str) -> tuple[Any, str]:
                         break
         start = text.find("{", start + 1)
     return None, text
-​
-​
+
+
 def _humanize_envelope(items: list[dict], leading: str = "") -> str:
     """Render a call to an undeclared tool as readable text.
-​
+
     The model sometimes invents a tool (commonly an `ask`/clarify tool) that the
     client never declared. Such a call must not be executed, but dumping the raw
     JSON envelope at the user is worse than useless, so it is rendered as prose.
     """
     parts: list[str] = [leading] if leading else []
-​
+
     for item in items:
         function = item.get("function") if isinstance(item.get("function"), dict) else item
         arguments = function.get("arguments")
@@ -266,7 +266,7 @@ def _humanize_envelope(items: list[dict], leading: str = "") -> str:
                 arguments = {}
         if not isinstance(arguments, dict):
             arguments = {}
-​
+
         # Common clarify/ask shape: {"questions": [{"question", "options": [...]}]}
         questions = arguments.get("questions")
         rendered_question = False
@@ -289,28 +289,28 @@ def _humanize_envelope(items: list[dict], leading: str = "") -> str:
                     elif isinstance(option, str):
                         parts.append(f"- {option}")
                 rendered_question = True
-​
+
         if rendered_question:
             continue
-​
+
         # Any other invented tool: surface its text-ish arguments, not raw JSON.
         text_values = [
             value for value in arguments.values() if isinstance(value, str) and value.strip()
         ]
         if text_values:
             parts.extend(text_values)
-​
+
     return "\n".join(part for part in parts if part).strip()
-​
-​
+
+
 def _repair_json_strings(text: str) -> str:
     """Re-escape string contents so a sloppily-quoted envelope becomes parseable.
-​
+
     Models frequently emit tool arguments containing source code with raw
     newlines and unescaped inner quotes (Python docstrings being the worst
     offender). Strict json.loads rejects those outright. This walks the text
     and rewrites every string literal with proper escaping.
-​
+
     A quote only ends a string when what follows it looks like real JSON
     structure: `:` (it closed a key), `}` / `]`, or `,` followed by the next
     key's opening quote. Anything else is treated as a literal quote inside the
@@ -319,20 +319,20 @@ def _repair_json_strings(text: str) -> str:
     out: list[str] = []
     index = 0
     length = len(text)
-​
+
     while index < length:
         char = text[index]
         if char != '"':
             out.append(char)
             index += 1
             continue
-​
+
         # Entering a string literal: copy it out with corrected escaping.
         out.append('"')
         index += 1
         while index < length:
             char = text[index]
-​
+
             if char == "\\" and index + 1 < length:
                 following = text[index + 1]
                 if following in '"\\/bfnrtu':
@@ -343,7 +343,7 @@ def _repair_json_strings(text: str) -> str:
                     out.append("\\\\")  # lone backslash, e.g. a Windows path
                     index += 1
                 continue
-​
+
             if char == '"':
                 lookahead = index + 1
                 while lookahead < length and text[lookahead] in " \t\r\n":
@@ -367,21 +367,21 @@ def _repair_json_strings(text: str) -> str:
                 out.append('\\"')  # literal quote inside the value
                 index += 1
                 continue
-​
+
             if char in "\n\r\t":
                 out.append({"\n": "\\n", "\r": "\\r", "\t": "\\t"}[char])
                 index += 1
                 continue
-​
+
             out.append(char)
             index += 1
-​
+
     return "".join(out)
-​
-​
+
+
 def extract_tool_calls(text: str, valid_names: set[str] | None = None) -> tuple[list[dict] | None, str]:
     """Parse a model reply into OpenAI tool_calls.
-​
+
     Returns (tool_calls, leftover_text). tool_calls is None when the reply is
     ordinary prose, in which case leftover_text is the original text.
     Tolerates markdown fences, a bare {"name": ..., "arguments": ...} object,
@@ -389,32 +389,32 @@ def extract_tool_calls(text: str, valid_names: set[str] | None = None) -> tuple[
     """
     if not text:
         return None, text
-​
+
     unknown_envelopes: list[dict] = []
-​
+
     candidates = [text]
     fenced = _FENCE_RE.search(text)
     if fenced:
         candidates.insert(0, fenced.group(1))
-​
+
     # Strict parses are tried first; repaired variants are appended as a
     # fallback so well-formed replies never go through the lenient path.
     for candidate in list(candidates):
         repaired = _repair_json_strings(candidate)
         if repaired != candidate:
             candidates.append(repaired)
-​
+
     for candidate in candidates:
         parsed, leading = _first_json_object(candidate)
         if not isinstance(parsed, dict):
             continue
-​
+
         raw_calls = parsed.get("tool_calls")
         if raw_calls is None and isinstance(parsed.get("name"), str):
             raw_calls = [parsed]  # bare single-call form
         if not isinstance(raw_calls, list):
             continue
-​
+
         saw_unknown_name = False
         calls: list[dict] = []
         for item in raw_calls:
@@ -447,15 +447,15 @@ def extract_tool_calls(text: str, valid_names: set[str] | None = None) -> tuple[
                     "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)},
                 }
             )
-​
+
         if calls:
             return calls, leading.strip()
         if saw_unknown_name:
             return None, _humanize_envelope(unknown_envelopes, leading.strip())
-​
+
     return None, text
-​
-​
+
+
 def apply_tool_calls(completion: dict, valid_names: set[str] | None = None) -> dict:
     """Rewrite a chat.completion in place to expose tool_calls when present."""
     choices = completion.get("choices")
@@ -465,20 +465,20 @@ def apply_tool_calls(completion: dict, valid_names: set[str] | None = None) -> d
     message = choice.get("message")
     if not isinstance(message, dict):
         return completion
-​
+
     calls, leftover = extract_tool_calls(message.get("content") or "", valid_names)
     if not calls:
         return completion
-​
+
     message["content"] = leftover or None
     message["tool_calls"] = calls
     choice["finish_reason"] = "tool_calls"
     return completion
-​
-​
+
+
 def completion_to_chunks(completion: dict, include_usage: bool = False) -> list[dict]:
     """Convert a finished completion into OpenAI streaming chunks.
-​
+
     Tool calls cannot be detected until the full reply is parsed, so streamed
     tool-calling requests are fulfilled non-streaming upstream and replayed as
     chunks here, preserving the SSE contract clients expect.
@@ -491,13 +491,13 @@ def completion_to_chunks(completion: dict, include_usage: bool = False) -> list[
         "created": completion.get("created"),
         "model": completion.get("model"),
     }
-​
+
     def chunk(delta: dict, finish_reason: Any = None) -> dict:
         return {
             **base,
             "choices": [{"index": 0, "delta": delta, "logprobs": None, "finish_reason": finish_reason}],
         }
-​
+
     chunks = [chunk({"role": "assistant"})]
     if message.get("content"):
         chunks.append(chunk({"content": message["content"]}))
@@ -521,4 +521,4 @@ def completion_to_chunks(completion: dict, include_usage: bool = False) -> list[
         final["usage"] = completion["usage"]
     chunks.append(final)
     return chunks
-​
+
