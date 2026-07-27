@@ -521,4 +521,3 @@ def completion_to_chunks(completion: dict, include_usage: bool = False) -> list[
         final["usage"] = completion["usage"]
     chunks.append(final)
     return chunks
-
