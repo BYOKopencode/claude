@@ -247,6 +247,30 @@ def _first_json_object(text: str) -> tuple[Any, str]:
     return None, text
 
 
+_ENVELOPE_START_RE = re.compile(r'\{\s*"tool_calls"\s*:')
+
+
+def _looks_like_partial_tool_call(text: str) -> bool:
+    """True when text begins a tool-call envelope but is not parseable JSON.
+
+    Used only to distinguish a truncated tool call from ordinary prose. Requires
+    the envelope marker AND that strict parsing of the JSON substring fails, so
+    a complete-but-unhandled envelope is never misclassified.
+    """
+    match = _ENVELOPE_START_RE.search(text)
+    if not match:
+        return False
+    fragment = text[match.start():]
+    parsed, _ = _first_json_object(fragment)
+    return parsed is None
+
+
+def _text_before_envelope(text: str) -> str:
+    """Return any conversational prose that preceded the envelope marker."""
+    match = _ENVELOPE_START_RE.search(text)
+    return text[: match.start()].strip() if match else ""
+
+
 def _humanize_envelope(items: list[dict], leading: str = "") -> str:
     """Render a call to an undeclared tool as readable text.
 
@@ -466,8 +490,24 @@ def apply_tool_calls(completion: dict, valid_names: set[str] | None = None) -> d
     if not isinstance(message, dict):
         return completion
 
-    calls, leftover = extract_tool_calls(message.get("content") or "", valid_names)
+    content = message.get("content") or ""
+    calls, leftover = extract_tool_calls(content, valid_names)
     if not calls:
+        # A tool-call envelope that the model began but never finished (it hit
+        # the output-token limit) cannot be parsed. Rather than leak raw,
+        # half-written JSON to the client, surface a clean, actionable message.
+        if choice.get("finish_reason") == "length" and _looks_like_partial_tool_call(content):
+            preface = _text_before_envelope(content)
+            notice = (
+                "[The tool call was cut off because the response hit its output-token "
+                "limit. Increase max_tokens (or split the work into smaller steps) and "
+                "try again.]"
+            )
+            message["content"] = f"{preface}\n\n{notice}".strip() if preface else notice
+        elif leftover != content:
+            # extract_tool_calls rewrote the text (e.g. an undeclared tool was
+            # humanized into prose). Apply it so raw JSON never reaches the user.
+            message["content"] = leftover or None
         return completion
 
     message["content"] = leftover or None
