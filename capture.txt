@@ -1,0 +1,26 @@
+# =============================================================================
+# OmniRogue credential capture. COMMIT this file; the app parses it on startup.
+#
+# TO REFRESH CREDENTIALS:
+#   1. Log in at https://omnirogue.com and open the AI chat.
+#   2. DevTools (F12) -> Network tab -> send a chat message.
+#   3. Right-click the request to  clerk.omnirogue.com/.../tokens  (best, allows
+#      auto-refresh) OR to  omnirogue.com/api/llm/chat  -> Copy -> Copy as cURL
+#      (or Copy as Python requests).
+#   4. Replace everything below this header, commit, and redeploy.
+#
+# Field order and extra analytics cookies do not matter; everything is parsed
+# from the JWTs. Only OMNIROGUE_API_KEY stays a Railway env var (keep it secret).
+# =============================================================================
+
+import requests
+
+cookies = {
+    '__client_uat': '1785669204',
+    '__client_uat_Lg-8FoU5': '1785669204',
+    '__session': 'eyJhbGciOiJSUzI1NiIsImNhdCI6ImNsX0I3ZDRQRDExMUFBQSIsImtpZCI6Imluc18zNlp0ZkU3SEcxdDdHUlpsOW5xaVBscFVnNGkiLCJvaWF0IjoxNzg1ODE1NjM3LCJ0eXAiOiJKV1QifQ.eyJhenAiOiJodHRwczovL29tbmlyb2d1ZS5jb20iLCJleHAiOjE3ODU4MTU2OTcsImZ2YSI6Wzk5OTk5LC0xXSwiaWF0IjoxNzg1ODE1NjM3LCJpc3MiOiJodHRwczovL2NsZXJrLm9tbmlyb2d1ZS5jb20iLCJuYmYiOjE3ODU4MTU2MjcsInNpZCI6InNlc3NfM0hNRG1jOURIMzRYblJacGU3QjJ3TG84aG93Iiwic3RzIjoiYWN0aXZlIiwic3ViIjoidXNlcl8zSE1EbVp5dDYxbkx3VW52N3ZQbWFLQVFIeXIiLCJ2IjoyfQ.GvWBnlR3T05eZcMeqjgBps484bDLCYgRPOSavDcAWtGfvUJ4Z5v8s13mL-xhDfeylZXUYzW6zatKaVbNc7A6mUXymCnoDAk5mPuWMBR6erhI1hhDGSPIt2joYP81tLwd5QzvOvgkFFpaUUEfxYQQhs11zqTolytpOn5Udl173CqMnG4AOqoyV8tETIlmqVSzt09I1ceZV0XhVNS0FHi6HkWlbmiAIpKhcI70INHM-NgSnc7bcrnrWPx8iP_V8h_9Mc7y4tElWDxkThIyQn8nSDavJuKgjGBfVT26MKRLWU_IlHUm1o57t0YVi5BFjlgZ-TfuHSvp21Ru2f-4nLQPGQ',
+    '__refresh_Lg-8FoU5': '3H0IS1BltgN1e5VuI0YwKUOy3qs:Zb7sL7YaRiNCNZiHTfbK',
+    'clerk_active_context': 'sess_3HMDmc9DH34XnRZpe7B2wLo8how:',
+}
+
+response = requests.post('https://omnirogue.com/api/llm/chat', cookies=cookies)
