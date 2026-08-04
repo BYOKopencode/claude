@@ -49,15 +49,21 @@ class OmniRogueProxy:
     # ── Cookie Builders ───────────────────────────────────────────────
 
     def _clerk_cookies(self) -> str:
-        return "; ".join([
-            f"__client={self._client_cookie}",
-            f"__client_uat={self._client_uat}",
-            f"__cf_bm={self._cf_bm}",
-            f"_cfuvid={self._cfuvid}",
-        ])
+        parts = []
+        if self._client_cookie:
+            parts.append(f"__client={self._client_cookie}")
+        if self._client_uat:
+            parts.append(f"__client_uat={self._client_uat}")
+        if self._cf_bm:
+            parts.append(f"__cf_bm={self._cf_bm}")
+        if self._cfuvid:
+            parts.append(f"_cfuvid={self._cfuvid}")
+        return "; ".join(parts)
 
     def _frontend_cookies(self) -> str:
-        return f"{self._clerk_cookies()}; __session={self._jwt}"
+        clerk = self._clerk_cookies()
+        session = f"__session={self._jwt}"
+        return f"{clerk}; {session}" if clerk else session
 
     # ── JWT Helpers ───────────────────────────────────────────────────
 
@@ -136,6 +142,16 @@ class OmniRogueProxy:
     def ensure_fresh(self, force: bool = False):
         """Refresh this user's JWT when needed, or unconditionally when forced."""
         with self._lock:
+            if not self._client_cookie:
+                # No __client rotating-token cookie -> cannot mint a new JWT.
+                # Serve with the seed JWT; surface a clear error only if forced.
+                if force:
+                    raise RuntimeError(
+                        "Cannot refresh JWT: this capture has no __client cookie. "
+                        "Capture the Clerk token request "
+                        "(clerk.omnirogue.com/v1/client/sessions/<sid>/tokens) instead."
+                    )
+                return
             if force or self._needs_refresh():
                 self._refresh_token()
 
@@ -163,7 +179,7 @@ class OmniRogueProxy:
             return model.split("/", 1)
         return "anthropic", model
 
-    # ── Chat ───────────────────────────────────────────────────────────
+    # ── Chat ──────────────────────────────────────────────────────────
 
     def _chat_request(self, messages, model: str, stream: bool) -> requests.Response:
         self.ensure_fresh()
@@ -365,3 +381,44 @@ class OmniRogueProxy:
             "jwt_issuer": claims.get("iss"),
             "jwt_audience": claims.get("azp"),
         }
+
+    def reseed(self, session_id=None, user_id=None, instance_id=None,
+               user_email=None, jwt=None, client_cookie=None, client_uat=None,
+               cf_bm=None, cfuvid=None, refresh=True):
+        """Replace identity + cookies from a fresh capture, then optionally refresh."""
+        with self._lock:
+            if session_id is not None:
+                self.session_id = session_id
+            if user_id is not None:
+                self.user_id = user_id
+            if instance_id is not None:
+                self.instance_id = instance_id
+            if user_email is not None:
+                self.user_email = user_email
+            if jwt is not None:
+                self._jwt = jwt
+            if client_cookie is not None:
+                self._client_cookie = client_cookie
+            if client_uat is not None:
+                self._client_uat = client_uat
+            if cf_bm is not None:
+                self._cf_bm = cf_bm
+            if cfuvid is not None:
+                self._cfuvid = cfuvid
+        if refresh:
+            self.ensure_fresh(force=True)
+
+    def export_env(self) -> Dict[str, str]:
+        """Current credentials as OMNIROGUE_* env vars (only non-empty ones)."""
+        candidates = {
+            "OMNIROGUE_SESSION_ID": self.session_id,
+            "OMNIROGUE_USER_ID": self.user_id,
+            "OMNIROGUE_USER_EMAIL": self.user_email,
+            "OMNIROGUE_INSTANCE_ID": self.instance_id,
+            "OMNIROGUE_JWT": self._jwt,
+            "OMNIROGUE_CLIENT_COOKIE": self._client_cookie,
+            "OMNIROGUE_CLIENT_UAT": self._client_uat,
+            "OMNIROGUE_CF_BM": self._cf_bm,
+            "OMNIROGUE_CFUVID": self._cfuvid,
+        }
+        return {k: v for k, v in candidates.items() if v}

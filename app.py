@@ -22,6 +22,7 @@ from tool_compat import (
     render_messages,
     tool_specs,
 )
+from reseed import parse_captured_request
 
 STREAM_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
@@ -146,6 +147,25 @@ class CookieUpdateRequest(BaseModel):
     cfuvid: Optional[str] = None
 
 
+class ReseedRequest(BaseModel):
+    """Reseed from a raw capture, a file path, or explicit fields."""
+
+    model_config = ConfigDict(extra="allow")
+
+    raw: Optional[str] = None
+    file: Optional[str] = None
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    instance_id: Optional[str] = None
+    user_email: Optional[str] = None
+    jwt: Optional[str] = None
+    client_cookie: Optional[str] = None
+    client_uat: Optional[str] = None
+    cf_bm: Optional[str] = None
+    cfuvid: Optional[str] = None
+    refresh: bool = True
+
+
 class ConversationRequest(BaseModel):
     title: str = "Untitled"
     conversation_id: Optional[str] = None
@@ -254,6 +274,63 @@ def update_cookies(req: CookieUpdateRequest, proxy: OmniRogueProxy = Depends(req
         cfuvid=req.cfuvid,
     )
     return JSONResponse({"status": "updated", "proxy": proxy.status()})
+
+
+_RESEED_FIELDS = (
+    "session_id", "user_id", "instance_id", "user_email", "jwt",
+    "client_cookie", "client_uat", "cf_bm", "cfuvid",
+)
+
+
+@app.post("/auth/reseed")
+def reseed_credentials(req: ReseedRequest, proxy: OmniRogueProxy = Depends(require_user)):
+    """Swap in a whole new session from a captured browser request.
+
+    Unlike /auth/cookies this also replaces session_id / user_id / instance_id,
+    which is what a revoked (signed_out) session requires.
+    """
+    provided = {f: getattr(req, f) for f in _RESEED_FIELDS if getattr(req, f) is not None}
+
+    if not provided:
+        text = req.raw
+        if not text and req.file:
+            try:
+                with open(req.file, encoding="utf-8") as handle:
+                    text = handle.read()
+            except OSError as exc:
+                raise HTTPException(status_code=400, detail=f"cannot read {req.file}: {exc}")
+        if not text:
+            raise HTTPException(
+                status_code=400,
+                detail="provide raw, file, or explicit credential fields",
+            )
+        parsed = parse_captured_request(text)
+        if parsed["_missing"]:
+            raise HTTPException(
+                status_code=400,
+                detail="capture is missing required fields: " + ", ".join(parsed["_missing"]),
+            )
+        provided = {f: parsed[f] for f in _RESEED_FIELDS if parsed.get(f)}
+
+    try:
+        proxy.reseed(refresh=req.refresh, **provided)
+    except Exception as exc:
+        return JSONResponse(
+            {
+                "status": "error",
+                "detail": str(exc),
+                "updated": sorted(provided),
+                "proxy": proxy.status(),
+            },
+            status_code=502,
+        )
+
+    return JSONResponse({
+        "status": "reseeded",
+        "updated": sorted(provided),
+        "proxy": proxy.status(),
+        "env_block": chr(10).join(f"{k}={v}" for k, v in proxy.export_env().items()),
+    })
 
 
 # ═══════════════════════════════════════════════════════════════════════
