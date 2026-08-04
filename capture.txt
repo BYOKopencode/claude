@@ -1,26 +1,45 @@
-# =============================================================================
-# OmniRogue credential capture. COMMIT this file; the app parses it on startup.
-#
-# TO REFRESH CREDENTIALS:
-#   1. Log in at https://omnirogue.com and open the AI chat.
-#   2. DevTools (F12) -> Network tab -> send a chat message.
-#   3. Right-click the request to  clerk.omnirogue.com/.../tokens  (best, allows
-#      auto-refresh) OR to  omnirogue.com/api/llm/chat  -> Copy -> Copy as cURL
-#      (or Copy as Python requests).
-#   4. Replace everything below this header, commit, and redeploy.
-#
-# Field order and extra analytics cookies do not matter; everything is parsed
-# from the JWTs. Only OMNIROGUE_API_KEY stays a Railway env var (keep it secret).
-# =============================================================================
-
 import requests
 
 cookies = {
+    '__client': 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImNsaWVudF8zSDBJUzFCbHRnTjFlNVZ1STBZd0tVT3kzcXMiLCJyb3RhdGluZ190b2tlbiI6IjU4ZHBmaTVjZWx1NnYwbWtsODBxc2Q4enVuM2o2aWJwdHRuMDMyNXEifQ.xMuObILVjc20YFbUqmYO5fjHdRLkqivG3FbQ3NrTIM7H72W5_Rof7x7eVDn-cePy0EEA1ZRewjegx3dgdzRFd_QL62utnLlWyn4EEAfq_V8Of-m4T728CyCkrAsM5uyh6FXSrE1zCOH_cTb6VF3LKbTKyaOeMHah_TJwaI2Nzv-guxcmLg5CIY_ocsZMJb4tNO4tAdJPyhmpEwJ3kJooiTYEwGg-qyJrkqCJmRMwFOyvxNcG6tnADYxRP42R6z_y43RQ6RNA2VK5bISbaek1pddevtGT9yoDJYKkdifNR1gGFE3lW-9p7ND1Lsq9UuAyE8bfth67cQ_kEtW2MhDF_w',
     '__client_uat': '1785669204',
     '__client_uat_Lg-8FoU5': '1785669204',
-    '__session': 'eyJhbGciOiJSUzI1NiIsImNhdCI6ImNsX0I3ZDRQRDExMUFBQSIsImtpZCI6Imluc18zNlp0ZkU3SEcxdDdHUlpsOW5xaVBscFVnNGkiLCJvaWF0IjoxNzg1ODE1NjM3LCJ0eXAiOiJKV1QifQ.eyJhenAiOiJodHRwczovL29tbmlyb2d1ZS5jb20iLCJleHAiOjE3ODU4MTU2OTcsImZ2YSI6Wzk5OTk5LC0xXSwiaWF0IjoxNzg1ODE1NjM3LCJpc3MiOiJodHRwczovL2NsZXJrLm9tbmlyb2d1ZS5jb20iLCJuYmYiOjE3ODU4MTU2MjcsInNpZCI6InNlc3NfM0hNRG1jOURIMzRYblJacGU3QjJ3TG84aG93Iiwic3RzIjoiYWN0aXZlIiwic3ViIjoidXNlcl8zSE1EbVp5dDYxbkx3VW52N3ZQbWFLQVFIeXIiLCJ2IjoyfQ.GvWBnlR3T05eZcMeqjgBps484bDLCYgRPOSavDcAWtGfvUJ4Z5v8s13mL-xhDfeylZXUYzW6zatKaVbNc7A6mUXymCnoDAk5mPuWMBR6erhI1hhDGSPIt2joYP81tLwd5QzvOvgkFFpaUUEfxYQQhs11zqTolytpOn5Udl173CqMnG4AOqoyV8tETIlmqVSzt09I1ceZV0XhVNS0FHi6HkWlbmiAIpKhcI70INHM-NgSnc7bcrnrWPx8iP_V8h_9Mc7y4tElWDxkThIyQn8nSDavJuKgjGBfVT26MKRLWU_IlHUm1o57t0YVi5BFjlgZ-TfuHSvp21Ru2f-4nLQPGQ',
-    '__refresh_Lg-8FoU5': '3H0IS1BltgN1e5VuI0YwKUOy3qs:Zb7sL7YaRiNCNZiHTfbK',
-    'clerk_active_context': 'sess_3HMDmc9DH34XnRZpe7B2wLo8how:',
+    '_gcl_au': '1.1.2108013630.1784998543.1819577130.1785669203.1785669202.1096319740.1785669203.1785669204',
+    '_gcl_aw': 'GCL.1784998543.CjwKCAjwvZHTBhAlEiwA1ug5P5ASqcuth1ftIFQvYFg6px3-o8BetXgpq2WO41jdsQUdmGAFIuUuexoCNIIQAvD_BwE',
+    '_gcl_gs': '2.1.k1$i1784998540$u146575402',
+    '_fbp': 'fb.1.1784998546242.994688830765969189',
+    '_cfuvid': '38t592iW_aVxpbiUOhPdN9PYzA55qwch6JproV3aG6w-1785826748543-0.0.1.1-604800000',
+    '__cf_bm': 'v8ZGalV3Cat2usYy5E.7SzBgWpBhXFdpxg3d3kj3WGY-1785826748-1.0.1.1-UEzx6UtCtmatnsu7zHOqUQClXlkHE40Rhxb4jHqBXidXNlrvOMYH9qRSirvtOa5kaASuQ5VBdY4sCF0rIAvwTqlJZkm1OjXCnXIWZkr_iks',
 }
 
-response = requests.post('https://omnirogue.com/api/llm/chat', cookies=cookies)
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:153.0) Gecko/20100101 Firefox/153.0',
+    'Accept': '*/*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://omnirogue.com/',
+    'content-type': 'application/x-www-form-urlencoded',
+    'Origin': 'https://omnirogue.com',
+    'Connection': 'keep-alive',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-site',
+    'Priority': 'u=4',
+}
+
+params = {
+    '__clerk_api_version': '2025-11-10',
+    '_clerk_js_version': '5.127.1',
+}
+
+data = {
+    'organization_id': '',
+    'token': 'eyJhbGciOiJSUzI1NiIsImNhdCI6ImNsX0I3ZDRQRDExMUFBQSIsImtpZCI6Imluc18zNlp0ZkU3SEcxdDdHUlpsOW5xaVBscFVnNGkiLCJvaWF0IjoxNzg1ODI2ODM1LCJ0eXAiOiJKV1QifQ.eyJhenAiOiJodHRwczovL29tbmlyb2d1ZS5jb20iLCJleHAiOjE3ODU4MjY4OTUsImZ2YSI6Wzk5OTk5LC0xXSwiaWF0IjoxNzg1ODI2ODM1LCJpc3MiOiJodHRwczovL2NsZXJrLm9tbmlyb2d1ZS5jb20iLCJuYmYiOjE3ODU4MjY4MjUsInNpZCI6InNlc3NfM0hNRG1jOURIMzRYblJacGU3QjJ3TG84aG93Iiwic3RzIjoiYWN0aXZlIiwic3ViIjoidXNlcl8zSE1EbVp5dDYxbkx3VW52N3ZQbWFLQVFIeXIiLCJ2IjoyfQ.cRxZYX54NfX07syiytzv2n4m85vD-JwdJdPY9SJgnxiNhNmoKf2vBs4WuKd-_AeSgYy1wB6MaxWDGisDWnNOC5sKT3kOpdQ6ycyxB7aGTeUAYP3E42DEdq0vwC0d9kJ0-ETzwkvVBf5MX2De4XBOsjsibB5gBc6YElgnbnnbbn7MwBdavhjQqR9dGK3eyD9aQSgaq-shG5rcTK-fAHX2wGQ9X3xWTTgNy0xj8bb7sX1_wLx58wTFiXn8xsxPnkPwFm6gDmCZDG9cnRS4BEPB726-ab9F32G1LSSjRwBm34ohhKf5Wo-0gtfE1w1h7KCYqvmqQbFK_jV7lkVN-QVbKg',
+}
+
+response = requests.post(
+    'https://clerk.omnirogue.com/v1/client/sessions/sess_3HMDmc9DH34XnRZpe7B2wLo8how/tokens',
+    params=params,
+    cookies=cookies,
+    headers=headers,
+    data=data,
+)
